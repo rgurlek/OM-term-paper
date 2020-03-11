@@ -1,12 +1,24 @@
 library(sf)
 nc <- st_read(system.file("shape/nc.shp", package="sf"))
 plot(nc$geometry[1])
+plot(nc, max.plot = 1)
 # sample random points on the border
 plot(st_sample(st_cast(nc$geometry[1],"MULTILINESTRING"), 100))
 # plot the points in the object
 plot(st_cast(nc$geometry[1],"MULTIPOINT"))
 
 
+# distance experiments
+points <- st_cast(nc$geometry, "POINT")
+st_distance(points[1], points[2])
+s1 <- nc[nc$NAME == "Burke", ]
+s2 <- nc[nc$NAME == "Caldwell", ]
+plot(s1)
+border <- st_intersection(s1$geometry, s2$geometry)
+plot(border)
+border
+points <- st_cast(border, "POINT")
+st_distance(points[1], points[length(points)])
 
 download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_USA_1_sf.rds",
               "gadm36_USA_1_sf.rds")

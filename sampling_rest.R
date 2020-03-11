@@ -1,7 +1,8 @@
 library(stringr)
 library(sf)
 
-sample_size <- 150
+set.seed(1234)
+sample_size <- 4000
 
 us <- readRDS("gadm36_USA_1_sf.rds")
 # Only the conterminous United States
@@ -34,7 +35,9 @@ for(i in 1:nrow(borders)){
   s1 <- us[us$State == s1, ]
   s2 <- us[us$State == s2, ]
   border <- st_intersection(s1$geometry, s2$geometry)
-  borders[i, "b_length"] <- sum(st_length(border))
+  points <- st_cast(border, "POINT")
+  borders[i, "b_length"] <- st_distance(points[1], points[length(points)])
+  # this distance is correct: https://www.daftlogic.com/projects-google-maps-distance-calculator.htm#
 }
 
 # Sample indices from the borders
@@ -55,7 +58,6 @@ point_sample <- function(b_row){
   s1 <- us[us$State == s1, ]
   s2 <- us[us$State == s2, ]
   border <- st_intersection(s1$geometry, s2$geometry)
-  plot(border)
   my_sample <- st_sample(border, as.numeric(b_row["Freq"]))
   my_sample <- my_sample[!is.na(st_dimension(my_sample))]
   return(my_sample)
@@ -68,4 +70,4 @@ for(i in final_sample){
   temp <- c(temp, st_cast(i,"POINT"))
 }
 final_sample <- temp
-
+saveRDS(final_sample, "rest_sample.rds")

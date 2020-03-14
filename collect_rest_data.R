@@ -6,6 +6,10 @@ library(dplyr)
 key <- readLines("api_key.txt")
 rest_sample <- readRDS("rest_sample.rds")
 radius = 16000 # about 10 miles
+plot(st_geometrycollection(rest_sample))
+# this plot shows that the sample is biased towards to the places where border
+# is not smooth. On these places the border is longer and gets more weigth 
+# for sampling but it covers a small area.
 
 # Create a list of dataframes. Because each cluster (a 
 # group of business centered around a border point) will
@@ -16,7 +20,7 @@ z <- 1
 for(i in rest_sample){
   longitude <- i[1]
   latitude <- i[2]
-  cat("\r", z, " ", longitude, " ", latitude)
+  cat("\r", z, " ", latitude, " ", longitude)
   # https://www.yelp.com/developers/documentation/v3/business_search
   bus_data <- suppressMessages(business_search(
     api_key = key,
@@ -28,7 +32,9 @@ for(i in rest_sample){
     limit = 50 # Using the offset and limit parameters, you can get up to 1000
     # businesses from this endpoint if there are more than 1000 results.
   ))
-  if(bus_data$total == 0) {next()}
+  z <- z + 1
+  if(is.null(bus_data$total)) next()
+  if(bus_data$total == 0) next()
   bus_data <- bus_data$businesses
   bus_data <- cbind(bus_data %>% select(-c(coordinates, location)),
                     (bus_data %>% select(coordinates))[[1]],
@@ -37,13 +43,8 @@ for(i in rest_sample){
                                      transactions, address1, address2,
                                      address3, country, display_address,
                                      phone, display_phone))
-  data_list[[paste(latitude, longitude, sep = "-")]] <- bus_data
-  z <- z + 1
+  data_list[[paste(latitude, longitude, sep = ",")]] <- bus_data
 }
 saveRDS(data_list,"rest_data.rds")
 
 
-my_fun <- function(x){
-  paste(x[2], x[1], sep = "-")
-}
-sample_names <- sapply(rest_sample, my_fun)

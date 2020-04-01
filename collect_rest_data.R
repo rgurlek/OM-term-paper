@@ -3,8 +3,10 @@
 library(yelpr)
 library(dplyr)
 
+seed <- 3234
+
 key <- readLines("api_key.txt")
-rest_sample <- readRDS("rest_sample.rds")
+rest_sample <- readRDS(paste0("rest_sample_", seed, ".rds"))
 radius = 16000 # about 10 miles
 plot(st_geometrycollection(rest_sample))
 # this plot shows that the sample is biased towards to the places where border
@@ -45,6 +47,6 @@ for(i in rest_sample){
                                      phone, display_phone))
   data_list[[paste(latitude, longitude, sep = ",")]] <- bus_data
 }
-saveRDS(data_list,"rest_data.rds")
+saveRDS(data_list,paste0("rest_data_", seed, ".rds"))
 
 

@@ -1,3 +1,6 @@
+0) Download US map and tax data
+	a) Download map from https://gadm.org/download_country_v3.html. You need gadm36_USA_1_sf.rds.
+	b) Download State tax csv files from https://www.avalara.com/taxrates/en/download-tax-tables.html. Store them in TAXRATES_ZIP5 folder.
 1) calculate_border_lengths
 2) sample_points
 3) collect_rest_data

@@ -41,4 +41,4 @@ for(i in final_sample){
 final_sample <- temp
 plot(st_geometrycollection(final_sample))
 
-saveRDS(final_sample, paste0("rest_sample_", seed, ".rds"))
+saveRDS(final_sample, paste0("point_sample_", seed, ".rds"))

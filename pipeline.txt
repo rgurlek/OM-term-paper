@@ -1,0 +1,4 @@
+1) calculate_border_lengths
+2) sample_points
+3) collect_rest_data
+4) structure_data # you can merge all rest_data files here and separate the analysis into a new script

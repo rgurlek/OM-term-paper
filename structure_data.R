@@ -12,44 +12,17 @@ for(i in seq(1234, seed, 1000)){
 }
 
 rest_data[[1]]
-get_stats <- function(x){
-  n_obs <-  nrow(x)
-  has_price <- !is.na(x$price) 
-  n_has_price <- sum(has_price)
-  # do not include rests without price to into stats
-  x <- x[has_price, ]
-  if(nrow(x) == 0) return(c(n_obs, n_has_price, rep(NA, 3))) # change 5 to the return's length if needed
-  states <- data.frame(table(x$state))
-  names(states) <- c("State", "Count")
-  n_states <- nrow(states)
-  # make the state with most rest your focal state
-  focal <- as.character(states[which.max(states$Count), "State"])
-  x$is_focal <- x$state == focal
-  n_focal <- sum(x$is_focal)
-  n_nonfocal <- sum(!x$is_focal)
-  return(c(n_obs, n_has_price, n_states, n_focal, n_nonfocal))
+
+# drop the clusters with less than 2 states
+meets_requirement <- function(cluster){
+  has_price <- !is.na(cluster$price) 
+  cluster <- cluster[has_price, ]
+  states <- length(unique(cluster$state))
+  return(states > 1)
 }
-cluster_stats <- sapply(rest_data, get_stats)
-cluster_stats <- t(cluster_stats)
-colnames(cluster_stats) <- c("n_obs", "n_has_price", "n_states", "n_focal",
-                             "n_nonfocal")
-apply(cluster_stats, 2, summary)
-n_nonfocal_count <- table(cluster_stats[, "n_nonfocal"])
-n_nonfocal <- as.numeric(names(n_nonfocal_count))
-n_nonfocal_count[n_nonfocal >= 5] %>% sum()
 
-# subset the clusters with at least 5 nonfocal rest
-has_5 <- cluster_stats[, "n_nonfocal"] >= 5
-has_5 <- ifelse(is.na(has_5), F, has_5)
-data_list <- rest_data[has_5]
-subset_stats <- sapply(data_list, get_stats)
-subset_stats <- t(subset_stats)
-colnames(subset_stats) <- c("n_obs", "n_has_price", "n_states", "n_focal",
-                             "n_nonfocal")
-apply(subset_stats, 2, summary)
-sum(subset_stats[, "n_focal"]) # number of observations to be used in the analysis
-
-
+keep_cluster <- sapply(rest_data, meets_requirement)
+rest_data <- rest_data[keep_cluster]
 
 # read tax data
 tax_rates <- do.call(rbind,
@@ -64,22 +37,20 @@ tax_rates <- tax_rates[, c("ZipCode", "StateRate", "CountyRate", "CityRate",
 
 raw_data <- data.frame()
 reg_data <- data.frame()
-for(i in 1:length(data_list)){
-  cluster <- data_list[[i]]
-  has_price <- !is.na(cluster$price) 
-  cluster <- cluster[has_price, ]
+for(i in 1:length(rest_data)){
+  cluster <- rest_data[[i]]
+  cluster <- cluster[complete.cases(cluster[,c("price", "state")]) , ]
   price_dic <- 1:4
   names(price_dic) <- c("$", "$$", "$$$", "$$$$")
   cluster$price <- price_dic[cluster$price]
   # merge with taxes
   cluster <- merge(cluster, tax_rates, by.x = "zip_code", "ZipCode",
                    all.x = T)
-  # make the state with most rest your focal state
-  states <- data.frame(table(cluster$state))
-  names(states) <- c("State", "Count")
-  focal <- as.character(states[which.max(states$Count), "State"])
-  cluster$is_focal <- cluster$state == focal
+  # randomly make one of the states focal 
+  states <- unique(cluster$state)
+  cluster$is_focal <- cluster$state == sample(states, 1)
   
+  cluster$cluster <- names(rest_data)[i]
   raw_data <- rbind(raw_data, cluster)
   
   # split the data and make both sf objects
@@ -89,9 +60,9 @@ for(i in 1:length(data_list)){
                        coords = c("longitude", "latitude"))
   st_crs(focal) <- 4326
   st_crs(nonfocal) <- 4326
-  dist_mat <- st_distance(focal, nonfocal) # rows: Focal, columns: nonFocal
-  dimnames(dist_mat) <- list(focal$id, nonfocal$id)
-  dist_mat <- dist_mat / rowSums(dist_mat, na.rm = T)
+  proxy_mat <- 1 / st_distance(focal, nonfocal) # rows: Focal, columns: nonFocal
+  dimnames(proxy_mat) <- list(focal$id, nonfocal$id)
+  proxy_mat <- proxy_mat / rowSums(proxy_mat, na.rm = T)
   # Subset dataframes and convert to matrix
   st_geometry(focal) <- NULL
   focal_mat <- as.matrix(focal[, c("review_count", "rating", "price", "StateRate",
@@ -104,9 +75,9 @@ for(i in 1:length(data_list)){
                                          "CombinedRate")])
   rownames(nonfocal_mat) <- nonfocal$id
   # demean the variables
-  focal_mat <- focal_mat - dist_mat %*% nonfocal_mat
+  focal_mat <- focal_mat - proxy_mat %*% nonfocal_mat
   focal_mat <- data.frame(focal_mat)
-  focal_mat$cluster <- names(data_list)[i]
+  focal_mat$cluster <- names(rest_data)[i]
   reg_data <- rbind(reg_data, focal_mat)
 }
 write.csv(raw_data, "raw_data.csv")
@@ -114,3 +85,44 @@ summary(reg_data)
 cor(reg_data[complete.cases(reg_data), sapply(reg_data, is.numeric)])
 head(reg_data)
 write.csv(reg_data, "reg_data.csv")
+
+
+{
+  # get_stats <- function(x){
+  #   n_obs <-  nrow(x)
+  #   has_price <- !is.na(x$price)
+  #   n_has_price <- sum(has_price)
+  #   # do not include rests without price to into stats
+  #   x <- x[has_price, ]
+  #   if(nrow(x) == 0) return(c(n_obs, n_has_price, rep(NA, 3))) # change 5 to the return's length if needed
+  #   states <- data.frame(table(x$state))
+  #   names(states) <- c("State", "Count")
+  #   n_states <- nrow(states)
+  #   # make the state with most rest your focal state
+  #   focal <- as.character(states[which.max(states$Count), "State"])
+  #   x$is_focal <- x$state == focal
+  #   n_focal <- sum(x$is_focal)
+  #   n_nonfocal <- sum(!x$is_focal)
+  #   return(c(n_obs, n_has_price, n_states, n_focal, n_nonfocal))
+  # }
+  # cluster_stats <- sapply(rest_data, get_stats)
+  # cluster_stats <- t(cluster_stats)
+  # colnames(cluster_stats) <- c("n_obs", "n_has_price", "n_states", "n_focal",
+  #                              "n_nonfocal")
+  # apply(cluster_stats, 2, summary)
+  # n_nonfocal_count <- table(cluster_stats[, "n_nonfocal"])
+  # n_nonfocal <- as.numeric(names(n_nonfocal_count))
+  # n_nonfocal_count[n_nonfocal >= 5] %>% sum()
+
+
+# # subset the clusters with at least 5 restaurants in the second state with most
+# has_5 <- cluster_stats[, "n_nonfocal"] >= 5
+# has_5 <- ifelse(is.na(has_5), F, has_5)
+# data_list <- rest_data[has_5]
+# subset_stats <- sapply(data_list, get_stats)
+# subset_stats <- t(subset_stats)
+# colnames(subset_stats) <- c("n_obs", "n_has_price", "n_states", "n_focal",
+#                             "n_nonfocal")
+# apply(subset_stats, 2, summary)
+# sum(subset_stats[, "n_focal"]) # number of observations to be used in the analysis
+}

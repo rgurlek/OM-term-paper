@@ -12,6 +12,19 @@ for(i in seq(1234, seed, 1000)){
 plot(st_geometrycollection(point_sample))
 length(point_sample)
 
+remove(point_sample)
+
+# 
+rest_data <- list()
+for(i in seq(1234, seed, 1000)){
+  rest_data <- c(rest_data, readRDS(paste0("rest_data_", seed, ".rds")))
+}
+table(sapply(rest_data, nrow))
+sum(sapply(rest_data, nrow))
+
+remove(rest_data)
+
+
 # An example from the original data ####
 library(yelpr)
 
@@ -40,10 +53,16 @@ aggregate(raw_data[, c("review_count", "rating", "price", "CombinedRate")],
 focal <- raw_data[raw_data$is_focal, ]
 non_focal <- raw_data[!raw_data$is_focal, ]
 t.test(focal$rating, non_focal$rating)
-t.test(focal$price, non_focal$price)
+t.test(focal$price, non_focal$price) # report confidence intervals in paper.
+# For the presentation, significance is not important. Just show means. The 
+# Focal assignment is random. The significance might be due to high n. The 
+# confidence intervals are economically ignorable.
 t.test(focal$CombinedRate, non_focal$CombinedRate)
+t.test(focal$StateRate, non_focal$StateRate)
+t.test(focal$CityRate, non_focal$CityRate)
 
 # Regression ####
+reg_data <- read.csv("reg_data.csv")
 
 library(AER)
 model <- lm(rating ~ StateRate + CountyRate + CityRate + SpecialRate,

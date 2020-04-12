@@ -2,3 +2,4 @@
 api_key.txt
 *.Rhistory
 .Rhistory
+.Rproj.user

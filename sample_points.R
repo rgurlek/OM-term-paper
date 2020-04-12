@@ -1,7 +1,7 @@
 library(stringr)
 library(sf)
 
-seed <- 3234
+seed <- 8234
 set.seed(seed)
 sample_size <- 4000
 

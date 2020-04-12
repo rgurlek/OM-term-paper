@@ -3,7 +3,7 @@
 library(yelpr)
 library(dplyr)
 
-seed <- 3234
+seed <- 8234
 
 key <- readLines("api_key.txt")
 point_sample <- readRDS(paste0("point_sample_", seed, ".rds"))
@@ -16,6 +16,8 @@ plot(st_geometrycollection(point_sample))
 # Create a list of dataframes. Because each cluster (a 
 # group of business centered around a border point) will
 # be used to generate the variables within itself.
+
+
 
 data_list <- list()
 z <- 1

@@ -1,0 +1,232 @@
+---
+title: "Analysis"
+author: "Ragip Gurlek"
+date: "4/17/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=F, warning=F)
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(plyr)
+library(sf)
+library(knitr)
+library(summarytools)
+library(stargazer)
+seed <- 8234
+```
+
+
+```{r}
+# Plot the sampled border points ####
+point_sample <- list()
+for(i in seq(1234, seed, 1000)){
+  point_sample <- c(point_sample, readRDS(paste0("point_sample_", seed, ".rds")))
+}
+plot(st_geometrycollection(point_sample))
+length(point_sample)
+
+remove(point_sample)
+```
+
+```{r}
+# Obsorve number of clusters with each nrow value
+rest_data <- list()
+for(i in seq(1234, seed, 1000)){
+  rest_data <- c(rest_data, readRDS(paste0("rest_data_", seed, ".rds")))
+}
+table(sapply(rest_data, nrow))
+sum(sapply(rest_data, nrow))
+
+remove(rest_data)
+```
+
+```{r}
+# An example from the original data ####
+library(yelpr)
+
+key <- readLines("api_key.txt")
+radius = 16000 # about 10 miles
+longitude <- -85.01723
+latitude <- 31.00204
+bus_data <- suppressMessages(business_search(
+  api_key = key,
+  latitude = latitude,
+  longitude = longitude,
+  radius = radius,
+  limit = 50 
+))
+bus_data <- bus_data$businesses
+bus_data$categories
+```
+
+# Descriptive Stats From Raw Data
+
+```{r}
+raw_data <- read.csv("raw_data.csv")
+state_counts <- table(raw_data$state)
+state_counts <- sort(state_counts, decreasing = T)
+length(state_counts)
+```
+```{r eval=FALSE, include=FALSE}
+# Report confidence intervals in paper.
+# For the presentation, significance is not important. Just show means. The 
+# Focal assignment is random. The significance might be due to high n. The 
+# confidence intervals are economically ignorable.
+```
+
+```{r, results='asis'}
+descr(raw_data[,c(6:9, 14:19)],
+      stats = c("min", "q1", "med", "mean", "q3", "max"),
+      style = "rmarkdown")
+```
+
+
+```{r}
+# Variable means
+summary_table <- aggregate(raw_data[, c("rating", "price", "CombinedRate", "review_count")],
+          list(raw_data$is_focal), mean, na.rm = T)[,2:5]
+rownames(summary_table) <- c("Non-focal", "Focal")
+kable(summary_table, digits = c(3,3,4,2),
+      caption = "Non-focal vs Focal Means")
+```
+
+```{r}
+# Variable sd
+summary_table <- aggregate(raw_data[, c("rating", "price", "CombinedRate", "review_count")],
+          list(raw_data$is_focal), sd, na.rm = T)[,2:5]
+rownames(summary_table) <- c("Non-focal", "Focal")
+kable(summary_table, digits = c(3,3,4,2),
+      caption = "Non-focal vs Focal Standard Deviations")
+```
+
+```{r}
+# Rating t-test for focal vs non-focal
+focal <- raw_data[raw_data$is_focal, ]
+non_focal <- raw_data[!raw_data$is_focal, ]
+t.test(focal$rating, non_focal$rating)
+```
+
+```{r}
+# Price t-test for focal vs non-focal
+t.test(focal$price, non_focal$price)
+```
+
+```{r}
+# CombinedRate t-test for focal vs non-focal
+t.test(focal$CombinedRate, non_focal$CombinedRate)
+```
+
+```{r}
+# StateRate t-test for focal vs non-focal
+t.test(focal$StateRate, non_focal$StateRate)
+```
+
+```{r}
+# CityRate t-test for focal vs non-focal
+t.test(focal$CityRate, non_focal$CityRate)
+```
+
+```{r}
+# Review Count t-test for focal vs non-focal
+t.test(focal$review_count, non_focal$review_count)
+```
+
+# Regression
+
+```{r}
+reg_data <- read.csv("reg_data.csv")
+min(reg_data$review_count)
+```
+
+
+```{r, results='asis'}
+library(AER)
+
+model <- ivreg(rating ~ log(review_count+1951) + price | log(review_count+1951) + StateRate +
+                 CountyRate + CityRate + SpecialRate, data = reg_data)
+stargazer(model, type = "html",
+          covariate.labels = c("log(review\\_count)", NA),
+          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
+          notes.append = T)
+```
+
+```{r, results='asis'}
+model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
+                 log(review_count+1951) + StateRate +
+                 CountyRate + CityRate + SpecialRate, data = reg_data)
+stargazer(model, type = "html",
+          covariate.labels = c("log(review\\_count)", NA, "price\\^2"),
+          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
+          notes.append = T)
+```
+
+This plot shows the prediction for Delta rating, not the effect (coefficient).
+It tells us that if I am cheaper than average of my neighbor restaurants,
+I am rated lower than them. Being a little bit expensive than the average slightly helps.
+However, after a point, it hurts the ratings. Specifically, being more expensive
+by a value between 0.26 and 0.64 significantly improves the ratings. The maximum effect
+is achived when the difference is 0.45, which improves the rating by 0.08.
+Being more expensive than the avereage by a value more than 0.92 hurts the rating
+although this effect is not significant due to high standard errors in that
+region.
+Note that these results are obtained after controlling for confounders like quality
+(thanks to IV and matching).
+
+```{r}
+library(ggeffects)
+mydf <- ggpredict(model, terms = "price [all]")
+attributes(mydf)$title <- "Prediction of deviance from mean Rating given deviance from mean Price"
+attributes(mydf)$x.title <- "Delta Price"
+attributes(mydf)$y.title <- "Delta Rating"
+plot(mydf)
+mydf[abs(mydf$predicted) < 0.001, ]
+signi_improve <- mydf[mydf$conf.low >0, ]
+signi_improve[c(1,nrow(signi_improve)), ]
+signi_improve[which.max(signi_improve$predicted), ]
+```
+
+```{r}
+hist(reg_data$price, xlab = "price", main = "Histogram of price")
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+model <- lm(rating ~ StateRate + CountyRate + CityRate + SpecialRate,
+            data = reg_data)
+summary(model)
+
+model <- lm(rating ~ review_count + price, data = reg_data)
+summary(model)
+
+
+model <- ivreg(rating ~ review_count + price| review_count + CombinedRate,
+               data = reg_data)
+summary(model)
+
+model <- lm(price ~ CombinedRate, data = reg_data)
+summary(model)
+
+library(ggplot2)
+ggplot(reg_data, aes(x = price, y = rating)) +
+  geom_point()
+
+```
+
+
+
+
+
+
+
+
+
+
+

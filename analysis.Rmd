@@ -44,6 +44,10 @@ for(i in seq(1234, seed, 1000)){
 table(sapply(rest_data, nrow))
 sum(sapply(rest_data, nrow))
 
+id_list <- lapply(rest_data, function(x) x$id)
+id_list <- unlist(id_list)
+length(unique(id_list))
+
 remove(rest_data)
 ```
 
@@ -74,6 +78,15 @@ state_counts <- table(raw_data$state)
 state_counts <- sort(state_counts, decreasing = T)
 length(state_counts)
 ```
+
+```{r eval=FALSE, include=FALSE}
+unique_data <- raw_data[!duplicated(raw_data$id), ]
+table(unique_data$is_focal)
+
+ids <- unlist(sapply(rest_data, function(x) x$id))
+length(unique(ids))
+```
+
 ```{r eval=FALSE, include=FALSE}
 # Report confidence intervals in paper.
 # For the presentation, significance is not important. Just show means. The 
@@ -181,7 +194,7 @@ Note that these results are obtained after controlling for confounders like qual
 
 ```{r}
 library(ggeffects)
-mydf <- ggpredict(model, terms = "price [all]")
+mydf <- ggpredict(model, terms = "price [all]", condition = c(review_count = 15))
 attributes(mydf)$title <- "Prediction of deviance from mean Rating given deviance from mean Price"
 attributes(mydf)$x.title <- "Delta Price"
 attributes(mydf)$y.title <- "Delta Rating"
@@ -196,7 +209,23 @@ signi_improve[which.max(signi_improve$predicted), ]
 hist(reg_data$price, xlab = "price", main = "Histogram of price")
 ```
 
+```{r eval=FALSE, include=FALSE, results='asis'}
+library(AER)
 
+set.seed(seed)
+reg_data <- read.csv("reg_data.csv")
+reg_data <- reg_data[sample(nrow(reg_data)), ]
+reg_data <- reg_data[!duplicated(reg_data$id), ]
+
+model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
+                 log(review_count+1951) + StateRate +
+                 CountyRate + CityRate + SpecialRate, data = reg_data)
+
+summary(model)
+library(ggeffects)
+mydf <- ggpredict(model, terms = "price [all]")
+plot(mydf)
+```
 
 ```{r eval=FALSE, include=FALSE}
 model <- lm(rating ~ StateRate + CountyRate + CityRate + SpecialRate,

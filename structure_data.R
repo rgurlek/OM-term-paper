@@ -78,6 +78,7 @@ for(i in 1:length(rest_data)){
   focal_mat <- focal_mat - proxy_mat %*% nonfocal_mat
   focal_mat <- data.frame(focal_mat)
   focal_mat$cluster <- names(rest_data)[i]
+  focal_mat$id <- focal$id
   reg_data <- rbind(reg_data, focal_mat)
 }
 write.csv(raw_data, "raw_data.csv")

@@ -19,6 +19,7 @@ library(sf)
 library(knitr)
 library(summarytools)
 library(stargazer)
+library(ggplot2)
 seed <- 8234
 ```
 
@@ -57,14 +58,15 @@ library(yelpr)
 
 key <- readLines("api_key.txt")
 radius = 16000 # about 10 miles
-longitude <- -85.01723
-latitude <- 31.00204
+longitude <-  -84.358739
+latitude <- 33.762607
 bus_data <- suppressMessages(business_search(
   api_key = key,
   latitude = latitude,
   longitude = longitude,
   radius = radius,
-  limit = 50 
+  limit = 50,
+  term = "restaurants"
 ))
 bus_data <- bus_data$businesses
 bus_data$categories
@@ -158,24 +160,46 @@ reg_data <- read.csv("reg_data.csv")
 min(reg_data$review_count)
 ```
 
+```{r}
+cols <- c("StateRate", "CountyRate", "CityRate", "SpecialRate")
+selected_cols <- reg_data[,cols]
+selected_cols$combined <- rowSums(selected_cols)
+ggplot(gather(selected_cols), aes(value)) + 
+    geom_histogram(bins = 100) + 
+    facet_wrap(~key, scales = 'free_x')
+```
+
+```{r}
+model <- lm(price ~ StateRate + CountyRate + CityRate + SpecialRate,
+            data = reg_data)
+summary(model)
+```
+
 
 ```{r, results='asis'}
 library(AER)
 
-model <- ivreg(rating ~ log(review_count+1951) + price | log(review_count+1951) + StateRate +
+linear_model <- ivreg(rating ~ log(review_count+1951) + price | log(review_count+1951) + StateRate +
                  CountyRate + CityRate + SpecialRate, data = reg_data)
-stargazer(model, type = "html",
+stargazer(linear_model, type = "html",
           covariate.labels = c("log(review\\_count)", NA),
           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
           notes.append = T)
 ```
 
 ```{r, results='asis'}
-model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
+nonlinear_model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
                  log(review_count+1951) + StateRate +
                  CountyRate + CityRate + SpecialRate, data = reg_data)
-stargazer(model, type = "html",
-          covariate.labels = c("log(review\\_count)", NA, "price\\^2"),
+stargazer(nonlinear_model, type = "html",
+          covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
+          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
+          notes.append = T)
+```
+
+```{r}
+stargazer(linear_model, nonlinear_model,
+          covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
           notes.append = T)
 ```
@@ -194,7 +218,7 @@ Note that these results are obtained after controlling for confounders like qual
 
 ```{r}
 library(ggeffects)
-mydf <- ggpredict(model, terms = "price [all]", condition = c(review_count = 15))
+mydf <- ggpredict(model, terms = "price [all]")
 attributes(mydf)$title <- "Prediction of deviance from mean Rating given deviance from mean Price"
 attributes(mydf)$x.title <- "Delta Price"
 attributes(mydf)$y.title <- "Delta Rating"
@@ -250,11 +274,31 @@ ggplot(reg_data, aes(x = price, y = rating)) +
 ```
 
 
+## Latex
 
+```{r eval=FALSE, include=FALSE, results='asis'}
+stargazer(descr(raw_data[,6:8],
+      stats = c("min", "q1", "med", "mean", "q3", "max"),
+      style = "rmarkdown"),
+      order = c(1,3,2,4))
+```
 
+```{r eval=FALSE, include=FALSE, results='asis'}
+stargazer(descr(raw_data[,14:18],
+      stats = c("min", "q1", "med", "mean", "q3", "max"),
+      style = "rmarkdown"),
+      order = c(1, 6, 2, 4, 5, 3))
+```
 
-
-
+```{r eval=FALSE, include=FALSE}
+# Variable means
+summary_table <- aggregate(raw_data[, c("rating", "price", "CombinedRate", "review_count")],
+          list(raw_data$is_focal), mean, na.rm = T)[,2:5]
+rownames(summary_table) <- c("Non-focal", "Focal")
+summary_table <- mapply(round, summary_table, c(3,3,4,2))
+summary_table <- apply(summary_table, 2, as.character)
+stargazer(summary_table, summary = F)
+```
 
 
 

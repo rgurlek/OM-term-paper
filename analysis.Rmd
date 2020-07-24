@@ -75,7 +75,7 @@ bus_data$categories
 # Descriptive Stats From Raw Data
 
 ```{r}
-raw_data <- read.csv("raw_data.csv")
+raw_data <- read.csv("raw_data2.csv")
 state_counts <- table(raw_data$state)
 state_counts <- sort(state_counts, decreasing = T)
 length(state_counts)
@@ -97,7 +97,7 @@ length(unique(ids))
 ```
 
 ```{r, results='asis'}
-descr(raw_data[,c(6:9, 14:19)],
+descr(raw_data[,c(6:9, 14:18)],
       stats = c("min", "q1", "med", "mean", "q3", "max"),
       style = "rmarkdown")
 ```
@@ -156,7 +156,7 @@ t.test(focal$review_count, non_focal$review_count)
 # Regression
 
 ```{r}
-reg_data <- read.csv("reg_data.csv")
+reg_data <- read.csv("reg_data2.csv")
 min(reg_data$review_count)
 ```
 
@@ -218,7 +218,7 @@ Note that these results are obtained after controlling for confounders like qual
 
 ```{r}
 library(ggeffects)
-mydf <- ggpredict(model, terms = "price [all]")
+mydf <- ggpredict(nonlinear_model, terms = "price [all]")
 attributes(mydf)$title <- "Prediction of deviance from mean Rating given deviance from mean Price"
 attributes(mydf)$x.title <- "Delta Price"
 attributes(mydf)$y.title <- "Delta Rating"
@@ -237,7 +237,7 @@ hist(reg_data$price, xlab = "price", main = "Histogram of price")
 library(AER)
 
 set.seed(seed)
-reg_data <- read.csv("reg_data.csv")
+reg_data <- read.csv("reg_data2.csv")
 reg_data <- reg_data[sample(nrow(reg_data)), ]
 reg_data <- reg_data[!duplicated(reg_data$id), ]
 

@@ -17,8 +17,6 @@ plot(st_geometrycollection(point_sample))
 # group of business centered around a border point) will
 # be used to generate the variables within itself.
 
-
-
 data_list <- list()
 z <- 1
 for(i in point_sample){
@@ -31,6 +29,7 @@ for(i in point_sample){
     latitude = latitude,
     longitude = longitude,
     radius = radius,
+    term = "restaurants",
     # open_now = TRUE, # don't use this. Now means this time of the day.
     # Instead, see the is_closed in the data returned.
     limit = 50 # Using the offset and limit parameters, you can get up to 1000
@@ -49,6 +48,6 @@ for(i in point_sample){
                                      phone, display_phone))
   data_list[[paste(latitude, longitude, sep = ",")]] <- bus_data
 }
-saveRDS(data_list,paste0("rest_data_", seed, ".rds"))
+saveRDS(data_list,paste0("rest_data2_", seed, ".rds"))
 
 

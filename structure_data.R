@@ -77,7 +77,7 @@ for(id in uniq_focal){
   focal <- merge(focal, tax_rates, by.x = "zip_code", by.y = "ZipCode",
                    all.x = T)
   focal <- focal[!is.na(focal$StateRate)]
-  if(nrow(local) == 0) next
+  if(nrow(focal) == 0) next
   focal$is_focal <- T
   
   nonfocal <- lapply(rest_data[clusters], function(x){
@@ -89,7 +89,7 @@ for(id in uniq_focal){
   nonfocal$price <- price_dic[nonfocal$price]
   nonfocal <- merge(nonfocal, tax_rates, by.x = "zip_code", by.y = "ZipCode",
                      all.x = T)
-  nonfocal <- nonfocal[!is.na(nonfocal$StateRate)]
+  nonfocal <- nonfocal[!is.na(nonfocal$StateRate), ]
   if(nrow(nonfocal) == 0) next
   nonfocal$is_focal <- F
   raw_data <- rbind(raw_data, focal, nonfocal)

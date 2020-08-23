@@ -20,6 +20,7 @@ library(knitr)
 library(summarytools)
 library(stargazer)
 library(ggplot2)
+library(margins)
 seed <- 8234
 ```
 
@@ -48,8 +49,6 @@ sum(sapply(rest_data, nrow))
 id_list <- lapply(rest_data, function(x) x$id)
 id_list <- unlist(id_list)
 length(unique(id_list))
-
-remove(rest_data)
 ```
 
 ```{r}
@@ -168,33 +167,40 @@ ggplot(gather(selected_cols), aes(value)) +
     geom_histogram(bins = 100) + 
     facet_wrap(~key, scales = 'free_x')
 ```
-
+## First stage regression
 ```{r}
+library(AER)
+cor(reg_data[,c("StateRate", "CountyRate", "CityRate", "SpecialRate", "CombinedRate",
+                "price")])
 model <- lm(price ~ StateRate + CountyRate + CityRate + SpecialRate,
             data = reg_data)
-summary(model)
+coeftest(model, vcov. = vcovHC, type = "HC2")
 ```
 
+## Linear model
 
-```{r, results='asis'}
-library(AER)
+```{r warning=FALSE, results='asis'}
 
 linear_model <- ivreg(rating ~ log(review_count+1951) + price | log(review_count+1951) + StateRate +
                  CountyRate + CityRate + SpecialRate, data = reg_data)
-stargazer(linear_model, type = "html",
-          covariate.labels = c("log(review\\_count)", NA),
-          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
-          notes.append = T)
+coeftest(linear_model, vcov. = vcovHC, type = "HC2")
+# stargazer(linear_model, type = "html",
+#           covariate.labels = c("log(review\\_count)", NA),
+#           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
+#           notes.append = T)
 ```
+
+## Non-lienar model
 
 ```{r, results='asis'}
 nonlinear_model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
                  log(review_count+1951) + StateRate +
                  CountyRate + CityRate + SpecialRate, data = reg_data)
-stargazer(nonlinear_model, type = "html",
-          covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
-          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
-          notes.append = T)
+coeftest(nonlinear_model, vcov. = vcovHC, type = "HC2")
+# stargazer(nonlinear_model, type = "html",
+#           covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
+#           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
+#           notes.append = T)
 ```
 
 ```{r}
@@ -232,6 +238,61 @@ signi_improve[which.max(signi_improve$predicted), ]
 ```{r}
 hist(reg_data$price, xlab = "price", main = "Histogram of price")
 ```
+# Heterogeneity Regressions
+
+## Price level heterogeneity
+Does the placebo effect more prevalent for more expensive restaurants? Will
+multicollinearity be an issue?
+
+```{r}
+colnames(raw_data)[colnames(raw_data) == "price"] <- "abs_price"
+reg_data <- merge(reg_data, raw_data[, c("id", "abs_price", "zip_code")],
+                  by = "id", all.x = T)
+cor(reg_data$price, reg_data$abs_price)
+cor(reg_data$price, reg_data$abs_price - reg_data$price)
+```
+
+This is a huge correlation! The correlation with the average competitor prices
+is lower. However, regression for that one is weird.
+
+```{r}
+reg_data$neigh_average <- reg_data$abs_price - reg_data$price
+abs_price_inter <- ivreg(rating ~ log(review_count+1951) + price*abs_price |
+                        log(review_count+1951) + StateRate +
+                 CountyRate + CityRate + SpecialRate, data = reg_data)
+coeftest(abs_price_inter, vcov. = vcovHC, type = "HC2")
+```
+
+For price levels 1 and 2, there is no placebo. For 3 and 4, there is. However,
+the significance of these should be tested. Can I find a way to deal with
+multicolliniarity?
+
+## Income level heterogeneity
+
+```{r}
+income <- read.csv("median income by zipcode - PolicyMap.csv",
+                   nrows = 33144, na.strings = "N/A")
+income <- income[,c(1,5)]
+colnames(income) <- c("zip_code","median_income")
+income$zip_code <- as.numeric(as.character(income$zip_code))
+reg_data <- merge(reg_data, income, by = "zip_code", all.x = T)
+```
+
+I lose 150 observations with NA median income.
+
+```{r}
+hist(reg_data$median_income)
+hist(log(reg_data$median_income))
+income_inter <- ivreg(rating ~ log(review_count+1951) + price * log(median_income) |
+                        log(review_count+1951) + StateRate +
+                 CountyRate + CityRate + SpecialRate, data = reg_data)
+coeftest(income_inter, vcov. = vcovHC, type = "HC2")
+coef(income_inter)[3] + coef(income_inter)[5] * min(log(reg_data$median_income), na.rm = T)
+coef(income_inter)[3] + coef(income_inter)[5] * max(log(reg_data$median_income), na.rm = T)
+```
+The effect is positive (placebo) for low-income neighborhoods. However, it will
+not be significant. It is not significant even with 0 income. 
+
 
 ```{r eval=FALSE, include=FALSE, results='asis'}
 library(AER)

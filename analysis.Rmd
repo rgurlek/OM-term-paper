@@ -177,63 +177,29 @@ model <- lm(price ~ StateRate + CountyRate + CityRate + SpecialRate,
 coeftest(model, vcov. = vcovHC, type = "HC2")
 ```
 
-## Linear model
+## IV model
 
 ```{r warning=FALSE, results='asis'}
 
-linear_model <- ivreg(rating ~ log(review_count+1951) + price | log(review_count+1951) + StateRate +
-                 CountyRate + CityRate + SpecialRate, data = reg_data)
-coeftest(linear_model, vcov. = vcovHC, type = "HC2")
-# stargazer(linear_model, type = "html",
+iv_model <- ivreg(rating ~ price + log_rev_count | log_rev_count +
+                        StateRate + CountyRate + CityRate + SpecialRate,
+                      data = reg_data)
+# White standard errors
+coeftest(iv_model, vcov. = vcovHC, type = "HC2")
+# stargazer(iv_model, type = "html",
 #           covariate.labels = c("log(review\\_count)", NA),
 #           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
 #           notes.append = T)
 ```
 
-## Non-lienar model
 
-```{r, results='asis'}
-nonlinear_model <- ivreg(rating ~ log(review_count+1951) + price + I(price^2)|
-                 log(review_count+1951) + StateRate +
-                 CountyRate + CityRate + SpecialRate, data = reg_data)
-coeftest(nonlinear_model, vcov. = vcovHC, type = "HC2")
-# stargazer(nonlinear_model, type = "html",
-#           covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
-#           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
-#           notes.append = T)
-```
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 stargazer(linear_model, nonlinear_model,
           covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
           notes.append = T)
 ```
 
-This plot shows the prediction for Delta rating, not the effect (coefficient).
-It tells us that if I am cheaper than average of my neighbor restaurants,
-I am rated lower than them. Being a little bit expensive than the average slightly helps.
-However, after a point, it hurts the ratings. Specifically, being more expensive
-by a value between 0.26 and 0.64 significantly improves the ratings. The maximum effect
-is achived when the difference is 0.45, which improves the rating by 0.08.
-Being more expensive than the avereage by a value more than 0.92 hurts the rating
-although this effect is not significant due to high standard errors in that
-region.
-Note that these results are obtained after controlling for confounders like quality
-(thanks to IV and matching).
-
-```{r}
-library(ggeffects)
-mydf <- ggpredict(nonlinear_model, terms = "price [all]")
-attributes(mydf)$title <- "Prediction of deviance from mean Rating given deviance from mean Price"
-attributes(mydf)$x.title <- "Delta Price"
-attributes(mydf)$y.title <- "Delta Rating"
-plot(mydf)
-mydf[abs(mydf$predicted) < 0.001, ]
-signi_improve <- mydf[mydf$conf.low >0, ]
-signi_improve[c(1,nrow(signi_improve)), ]
-signi_improve[which.max(signi_improve$predicted), ]
-```
 
 ```{r}
 hist(reg_data$price, xlab = "price", main = "Histogram of price")
@@ -244,28 +210,6 @@ hist(reg_data$price, xlab = "price", main = "Histogram of price")
 Does the placebo effect more prevalent for more expensive restaurants? Will
 multicollinearity be an issue?
 
-```{r}
-colnames(raw_data)[colnames(raw_data) == "price"] <- "abs_price"
-reg_data <- merge(reg_data, raw_data[, c("id", "abs_price", "zip_code")],
-                  by = "id", all.x = T)
-cor(reg_data$price, reg_data$abs_price)
-cor(reg_data$price, reg_data$abs_price - reg_data$price)
-```
-
-This is a huge correlation! The correlation with the average competitor prices
-is lower. However, regression for that one is weird.
-
-```{r}
-reg_data$neigh_average <- reg_data$abs_price - reg_data$price
-abs_price_inter <- ivreg(rating ~ log(review_count+1951) + price*abs_price |
-                        log(review_count+1951) + StateRate +
-                 CountyRate + CityRate + SpecialRate, data = reg_data)
-coeftest(abs_price_inter, vcov. = vcovHC, type = "HC2")
-```
-
-For price levels 1 and 2, there is no placebo. For 3 and 4, there is. However,
-the significance of these should be tested. Can I find a way to deal with
-multicolliniarity?
 
 ## Income level heterogeneity
 
@@ -275,6 +219,7 @@ income <- read.csv("median income by zipcode - PolicyMap.csv",
 income <- income[,c(1,5)]
 colnames(income) <- c("zip_code","median_income")
 income$zip_code <- as.numeric(as.character(income$zip_code))
+reg_data <- merge(reg_data, raw_data[,c('id', 'zip_code')], by = "id", all.x = T)
 reg_data <- merge(reg_data, income, by = "zip_code", all.x = T)
 ```
 
@@ -283,16 +228,16 @@ I lose 150 observations with NA median income.
 ```{r}
 hist(reg_data$median_income)
 hist(log(reg_data$median_income))
-income_inter <- ivreg(rating ~ log(review_count+1951) + price * log(median_income) |
-                        log(review_count+1951) + StateRate +
-                 CountyRate + CityRate + SpecialRate, data = reg_data)
+my_df <- reg_data[, c("price", "median_income")]
+my_df <- my_df[complete.cases(my_df), ]
+cor(my_df$price, log(my_df$median_income))
+income_inter <- ivreg(rating ~ price*log(median_income) +  rating_neighb + price_neighb |
+                        rating_neighb + price_neighb +
+                        StateRate + CountyRate + CityRate + SpecialRate +
+                        StateRate_neighb + CountyRate_neighb + CityRate_neighb +
+                        SpecialRate_neighb, data = reg_data)
 coeftest(income_inter, vcov. = vcovHC, type = "HC2")
-coef(income_inter)[3] + coef(income_inter)[5] * min(log(reg_data$median_income), na.rm = T)
-coef(income_inter)[3] + coef(income_inter)[5] * max(log(reg_data$median_income), na.rm = T)
 ```
-The effect is positive (placebo) for low-income neighborhoods. However, it will
-not be significant. It is not significant even with 0 income. 
-
 
 ```{r eval=FALSE, include=FALSE, results='asis'}
 library(AER)

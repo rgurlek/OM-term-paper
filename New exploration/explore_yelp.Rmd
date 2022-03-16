@@ -1,0 +1,39 @@
+---
+title: "Explore Yelp Dataset"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+
+reviews <- readLines("yelp_academic_dataset_review.json")
+reviews <- lapply(reviews, jsonlite::fromJSON)
+checkin <- dplyr::bind_rows(checkin)
+
+
+# checkins
+checkin <- readLines("yelp_academic_dataset_checkin.json")
+checkin <- lapply(checkin, jsonlite::fromJSON)
+checkin <- dplyr::bind_rows(checkin)
+
+checkin_long <- tidyr::separate_rows(checkin, date, sep = ", ")
+checkin_long <- data.table(checkin_long)
+checkin_long[, date2 := date]
+checkin_long[, date := strptime(date2, format = "%Y-%m-%d %H:%M:%S")]
+checkin_long[is.na(date),
+             date2 := stringr::str_replace(date2, "02:", "03:")]
+checkin_long[is.na(date),
+             date := strptime(date2, format = "%Y-%m-%d %H:%M:%S")]
+sum(is.na(checkin_long$date))
+checkin_long[, date2 := NULL]
+max(checkin_long$date)
+
+checkin[, check_ins := stringr::str_count(date, ",")]
+summary(checkin$check_ins)
+checkin[, date := NULL]
+```
+

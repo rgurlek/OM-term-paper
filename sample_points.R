@@ -14,7 +14,8 @@ borders$prob <- borders$b_length / sum(borders$b_length)
 border_sample <- sample(1:nrow(borders), sample_size,
                         replace = T, prob = borders$prob)
 border_sample <- borders[border_sample, c("STATE", "ADJ")]
-border_sample <- table(border_sample$STATE, border_sample$ADJ) %>% data.frame()
+border_sample <- table(border_sample$STATE, border_sample$ADJ) %>%
+  data.frame()
 border_sample <- border_sample[border_sample$Freq != 0, ]
 sum(border_sample$Freq)
 borders <- merge(borders, border_sample, all.x = F,

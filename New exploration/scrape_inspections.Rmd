@@ -1,0 +1,220 @@
+---
+title: "Scrape Inspections"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rvest)
+library(dplyr)
+library(stringr)
+library(data.table)
+```
+
+## Obtain list of Georgia Counties
+```{r}
+url <- "https://en.wikipedia.org/wiki/List_of_counties_in_Georgia"
+counties <- read_html(url) %>% 
+  html_element(xpath = '//*[@id="mw-content-text"]/div[1]/table[3]') %>% 
+  html_table() %>% 
+  mutate(county = gsub(" County", "", County),
+         population = readr::parse_number(`Population[14]`),
+         county = gsub(" ", "%20", county)) %>%
+  select(county, population) %>% 
+  arrange(desc(population))
+```
+
+## Scrape from invidual county search pages provided by ga.healthinspections.us
+
+Helpers
+```{r}
+county_search <- function(
+  county,
+  start = 1,
+  inspection_type = "Food",
+  start_date = "02/12/2022",
+  end_date = "03/14/2022",
+  use_date = "NO",
+  grade_letter = "All"
+){
+  url <- glue::glue('https://ga.healthinspections.us/georgia/search.cfm?',
+                    'start={start}&',
+                    '1=1&f=s&r=name&s=&',
+                    'inspectionType={inspection_type}&',
+                    'gradeLetter={grade_letter}&',
+                    'sd={start_date}&',
+                    'ed={end_date}&',
+                    'useDate={use_date}&',
+                    'county={county}')
+  return(read_html(url))
+}
+
+entities <- function(my_html){ # This is a xml_node lacking a nice structure
+  my_html %>%
+    html_element('[style|="display:inline-block; font-size:10pt;"]')
+}
+```
+
+
+Explore which counties can be searched
+```{r}
+county_exists <- sapply(counties$county, function(county){
+  cat("\r", rep("", 20))
+  cat("\r", county, which(counties$county == county))
+  Sys.sleep(runif(1, 3, 6))
+  # Technically this is an xml_node object not html
+  my_html <- county_search(county)
+  does_exist <- suppressWarnings(str_detect(entities(my_html), "strong"))
+  return(does_exist)
+})
+
+sum(!county_exists)
+counties$county[!county_exists]
+county_subset <- counties$county[county_exists]
+```
+
+Create county list that contains page lists for each county. Page lists contain the data scraped from those pages.
+DO NOT RUN WHEN YOU PAUSE AND CONTINUE
+```{r}
+county_list <- as.list(rep(NA, length(county_subset)))
+names(county_list) <- county_subset
+```
+
+Scraping loops
+```{r}
+for(i in 1:length(county_list)){
+  if(is.na(county_list[[i]][[1]])){
+    my_html <- county_search(names(county_list)[i])
+    pages <- my_html %>%
+      html_elements(".teaser") %>% 
+      html_attr("href")
+    pages <- paste0("https://ga.healthinspections.us/georgia/", pages)
+    temp <- as.list(rep(NA, length(pages)))
+    names(temp) <- pages
+    pages <- temp
+  } else{
+    pages <- county_list[[i]]
+  }
+
+  Sys.sleep(runif(1, 2, 6))
+  
+  for(j in 1:length(pages)){
+    if(!is.na(pages[[j]])) next
+    cat("\r", rep("", 20))
+    cat("\r", i, j)
+    pages[[j]] <- names(pages)[[j]] %>% 
+      read_html() %>% 
+      entities()
+    Sys.sleep(runif(1, 3, 6))
+  }
+  
+  county_list[[i]] <- pages
+}
+```
+
+Parse inspection lists
+```{r}
+parse_inspections <- function(raw_data){
+  raw_data <- str_split(as.character(raw_data), "<strong>")[[1]][-1]
+  entity <- str_match(raw_data, '(.+?) \\(Food Service Inspections\\)')[,2]
+  street_address <- str_match(raw_data, '<br>\\n\\t\\t(.+?)\\s*\\n')[,2]
+  city_zip <- str_match(raw_data, '\\n(.+?)<br>\\n\\t\\tView inspections')[,2]
+  inspections <- str_extract_all(raw_data, "<a (.+?)</a>")
+  inspections <- lapply(inspections, function(ins_list){
+    return(data.frame(
+      date = str_match(ins_list, '>(.+?) Score:')[, 2],
+      score = str_match(ins_list, ' Score: (\\d+?),')[, 2],
+      grade = str_match(ins_list, ' Grade: (\\w)')[, 2],
+      report_url = str_match(ins_list, ' href=\\"(.+?)\\"')[, 2]
+    ))
+  })
+  return(data.frame(entity, street_address, city_zip, I(inspections)))
+}
+
+parsed_data <- list()
+for(i in 1:length(county_list)){
+  county <- names(county_list)[i]
+  parsed_data[[county]] <- list()
+  pages <- county_list[[i]]
+  for(j in 1:length(pages)){
+    parsed_data[[county]][[names(pages)[j]]] <-
+      parse_inspections(pages[[j]])
+  }
+}
+
+save(parsed_data, file = "parsed_inspections_in_list.RData")
+```
+
+Convert parsed_data to tidy format. Do not include the page name as column. You created parsed_data as list to keep this information without having to include in the dataframe. It is unlikely you will need it.
+```{r}
+df <- data.frame()
+na_count <- 0
+for(county in names(parsed_data)){
+  pages <- parsed_data[[county]]
+  for(page in pages){
+    for(row in 1:nrow(page)){
+      if(is.na(page[row, "entity"])){
+        na_count <-  na_count + 1
+        next
+      }
+      df <- rbind(df,
+                  data.frame(
+                    page[row, c("entity", "street_address", "city_zip")],
+                    county,
+                    page[row, "inspections"][[1]],
+                    row.names = NULL
+                  )
+      )
+    }
+  }
+}
+
+df <- data.table(df)
+df[, `:=`(score = as.numeric(score),
+          date = as.Date(date, format = "%B %d, %Y"))]
+
+save(df, file = "parsed_inspections_in_DF.RData")
+```
+
+Inspect some summaries
+```{r}
+# Not too many NAs
+sapply(df, function(x) sum(is.na(x)))
+range(df$date, na.rm = T)
+
+# There seems to be sorting. The question is whether it is endogenous.
+# It is fine if the inspectors are more likely to give grade A rather than
+# grade B as long as this behavior is totaly random and is not confounded by
+# restaurant characteristics such as popularity or size.
+table(df$score)
+plot(table(df$score)[as.character(65:95)])
+
+# See if rdrobust would work this integer valued running variable. Use
+# some artifical closure for this
+df[, `:=`(
+  left = rbinom(.N, 1, boot::inv.logit((score^3 - 30*score^2)/1000000)),
+  right = rbinom(.N, 1, boot::inv.logit((score^3 - 2*score^2)/1000000))
+  )]
+df[, closed := ifelse(score>89, right, left)]
+
+library(rdrobust)
+rdplot(df$closed, df$score, c = 89.5)
+
+rd_model <- rdrobust(df$closed, df$score, c = 89.5)
+summary(rd_model)
+rd_model$coef
+rd_model$ci
+```
+
+
+## Scrape from ga.healthinspections.us
+
+```{r}
+batch <- 1
+
+url <- paste0('https://ga.healthinspections.us/stateofgeorgia/API/index.cfm/search/%7B%22permitType%22:%22Rm9vZCBTZXJ2aWNl%22,%22keyword%22:%22%22%7D/', batch - 1)
+
+jsonlite::fromJSON(url, simplifyVector = F)
+```
+

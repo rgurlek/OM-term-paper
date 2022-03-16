@@ -10,7 +10,7 @@ plot(st_cast(nc$geometry[1],"MULTIPOINT"))
 
 # distance experiments
 points <- st_cast(nc$geometry, "POINT")
-st_distance(points[1], points[2])
+st_distance(points)
 s1 <- nc[nc$NAME == "Burke", ]
 s2 <- nc[nc$NAME == "Caldwell", ]
 plot(s1)

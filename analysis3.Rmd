@@ -1,0 +1,16 @@
+---
+title: "Analysis 3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(sf)
+library(knitr)
+seed <- 8234
+```

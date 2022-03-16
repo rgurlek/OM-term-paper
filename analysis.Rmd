@@ -13,14 +13,14 @@ knitr::opts_chunk$set(echo = TRUE, message=F, warning=F)
 
 ```{r}
 library(tidyr)
-library(dplyr)
 library(plyr)
+library(dplyr)
 library(sf)
 library(knitr)
 library(summarytools)
 library(stargazer)
 library(ggplot2)
-library(margins)
+library(interplot)
 seed <- 8234
 ```
 
@@ -46,6 +46,7 @@ for(i in seq(1234, seed, 1000)){
 table(sapply(rest_data, nrow))
 sum(sapply(rest_data, nrow))
 
+# Number of unique restaurants in the data
 id_list <- lapply(rest_data, function(x) x$id)
 id_list <- unlist(id_list)
 length(unique(id_list))
@@ -68,7 +69,7 @@ bus_data <- suppressMessages(business_search(
   term = "restaurants"
 ))
 bus_data <- bus_data$businesses
-bus_data$categories
+bus_data[1, ]
 ```
 
 # Descriptive Stats From Raw Data
@@ -81,14 +82,6 @@ length(state_counts)
 ```
 
 ```{r eval=FALSE, include=FALSE}
-unique_data <- raw_data[!duplicated(raw_data$id), ]
-table(unique_data$is_focal)
-
-ids <- unlist(sapply(rest_data, function(x) x$id))
-length(unique(ids))
-```
-
-```{r eval=FALSE, include=FALSE}
 # Report confidence intervals in paper.
 # For the presentation, significance is not important. Just show means. The 
 # Focal assignment is random. The significance might be due to high n. The 
@@ -96,9 +89,11 @@ length(unique(ids))
 ```
 
 ```{r, results='asis'}
-descr(raw_data[,c(6:9, 14:18)],
-      stats = c("min", "q1", "med", "mean", "q3", "max"),
-      style = "rmarkdown")
+stargazer(raw_data[,c(7,8,6, 14:18)],
+          title = "Descriptive statistics",
+          label = "Desc",
+          header = F,
+          notes = "CombinedRate is sum all sales taxes")
 ```
 
 
@@ -107,8 +102,12 @@ descr(raw_data[,c(6:9, 14:18)],
 summary_table <- aggregate(raw_data[, c("rating", "price", "CombinedRate", "review_count")],
           list(raw_data$is_focal), mean, na.rm = T)[,2:5]
 rownames(summary_table) <- c("Non-focal", "Focal")
-kable(summary_table, digits = c(3,3,4,2),
-      caption = "Non-focal vs Focal Means")
+summary_table <- summary_table[, c(1, 2, 4, 3)]
+stargazer(summary_table, summary = F,
+          title = "Comparison of means for focal and non-focal groups",
+          label = "versus",
+          header = F,
+          notes = "CombinedRate is sum all sales taxes")
 ```
 
 ```{r}
@@ -156,7 +155,6 @@ t.test(focal$review_count, non_focal$review_count)
 
 ```{r}
 reg_data <- read.csv("reg_data2.csv")
-min(reg_data$review_count)
 ```
 
 ```{r}
@@ -170,8 +168,7 @@ ggplot(gather(selected_cols), aes(value)) +
 ## First stage regression
 ```{r}
 library(AER)
-cor(reg_data[,c("StateRate", "CountyRate", "CityRate", "SpecialRate", "CombinedRate",
-                "price")])
+# cor(reg_data[,sapply(reg_data, is.numeric)])
 model <- lm(price ~ StateRate + CountyRate + CityRate + SpecialRate,
             data = reg_data)
 coeftest(model, vcov. = vcovHC, type = "HC2")
@@ -181,25 +178,85 @@ coeftest(model, vcov. = vcovHC, type = "HC2")
 
 ```{r warning=FALSE, results='asis'}
 
-iv_model <- ivreg(rating ~ price + log_rev_count | log_rev_count +
-                        StateRate + CountyRate + CityRate + SpecialRate,
-                      data = reg_data)
+iv_model_1 <- ivreg(rating ~ price |
+                      StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+iv_model_2 <- ivreg(rating ~ price  + log(review_count+1951)|
+                    log(review_count+1951) +
+                    StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
 # White standard errors
-coeftest(iv_model, vcov. = vcovHC, type = "HC2")
+test1 <- coeftest(iv_model_1, vcov. = vcovHC, type = "HC2")
+test2 <- coeftest(iv_model_2, vcov. = vcovHC, type = "HC2")
 # stargazer(iv_model, type = "html",
 #           covariate.labels = c("log(review\\_count)", NA),
 #           notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
 #           notes.append = T)
 ```
 
-
 ```{r eval=FALSE, include=FALSE}
-stargazer(linear_model, nonlinear_model,
-          covariate.labels = c("log(review\\_count)", NA, "price$^2$"),
-          notes = "IVs used for price: StateRate, CountyRate, CityRate, SpecialRate",
-          notes.append = T)
+stargazer(iv_model_1, iv_model_2,
+          intercept.bottom = F, intercept.top = F, header = F,
+          covariate.labels = c(NA, "log(review\\_count)"),
+          se = list(test1[, 2], test2[, 2]),
+          pe = list(test1[, 4], test2[, 4]),
+          notes = c("Instruments used for price: StateRate, CountyRate, CityRate, SpecialRate.", "Heteroscedasticity-consistent standard errors are reported in parentheses."),
+          notes.append = T, omit = "Constant",
+          omit.table.layout = "s",
+          label = "regression",
+          title = "IV estimate of the effect of price with and without review count")
 ```
 
+# Robustness for radius
+```{r warning=FALSE, results='asis'}
+reg_data <- read.csv("reg_data_8046.csv")
+iv_model_1 <- ivreg(rating ~ price |
+                      StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+iv_model_2 <- ivreg(rating ~ price  + log(review_count+1951)|
+                    log(review_count+1951) +
+                    StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+test1 <- coeftest(iv_model_1, vcov. = vcovHC, type = "HC2")
+test2 <- coeftest(iv_model_2, vcov. = vcovHC, type = "HC2")
+
+reg_data <- read.csv("reg_data_4023.csv")
+iv_model_3 <- ivreg(rating ~ price |
+                      StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+iv_model_4 <- ivreg(rating ~ price  + log(review_count+1951)|
+                    log(review_count+1951) +
+                    StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+test3 <- coeftest(iv_model_3, vcov. = vcovHC, type = "HC2")
+test4 <- coeftest(iv_model_4, vcov. = vcovHC, type = "HC2")
+
+reg_data <- read.csv("reg_data_1609.csv")
+iv_model_5 <- ivreg(rating ~ price |
+                      StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+iv_model_6 <- ivreg(rating ~ price  + log(review_count+1951)|
+                    log(review_count+1951) +
+                    StateRate + CountyRate + CityRate + SpecialRate,
+                  data = reg_data)
+test5 <- coeftest(iv_model_5, vcov. = vcovHC, type = "HC2")
+test6 <- coeftest(iv_model_6, vcov. = vcovHC, type = "HC2")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+stargazer(iv_model_1, iv_model_2, iv_model_3, iv_model_4, iv_model_5, iv_model_6,
+          intercept.bottom = F, intercept.top = F, header = F,
+          covariate.labels = c(NA, "log(review\\_count)"),
+          se = list(test1[, 2], test2[, 2], test3[, 2], test4[, 2], test5[, 2], test6[, 2]),
+          pe = list(test1[, 4], test2[, 4], test3[, 4], test4[, 4], test5[, 4], test6[, 4]),
+          column.labels = c("5 miles", "5 miles", "2.5 miles", "2.5 miles", "1 miles", "1 miles"),
+          notes = c("Instruments used for price: StateRate, CountyRate, CityRate, SpecialRate.", "Heteroscedasticity-consistent standard errors are reported in parentheses."),
+          notes.append = T, omit = "Constant",
+          omit.table.layout = "s",
+          label = "robust",
+          title = "IV estimate of the effect of price on rating for different radius choices")
+```
 
 ```{r}
 hist(reg_data$price, xlab = "price", main = "Histogram of price")
@@ -229,14 +286,34 @@ I lose 150 observations with NA median income.
 hist(reg_data$median_income)
 hist(log(reg_data$median_income))
 my_df <- reg_data[, c("price", "median_income")]
-my_df <- my_df[complete.cases(my_df), ]
+my_df <- reg_data[complete.cases(my_df), ]
 cor(my_df$price, log(my_df$median_income))
-income_inter <- ivreg(rating ~ price*log(median_income) +  rating_neighb + price_neighb |
-                        rating_neighb + price_neighb +
-                        StateRate + CountyRate + CityRate + SpecialRate +
-                        StateRate_neighb + CountyRate_neighb + CityRate_neighb +
-                        SpecialRate_neighb, data = reg_data)
-coeftest(income_inter, vcov. = vcovHC, type = "HC2")
+income_inter <- ivreg(rating ~ log(review_count+1951) +
+                        price*log(median_income) |
+                        log(review_count+1951) + log(median_income) +
+                        StateRate + CountyRate + CityRate + SpecialRate,
+                      data = my_df)
+
+# Standard error - Confidence Interval for interaction
+coefs <- coeftest(income_inter, vcov. = vcovHC, type = "HC2")
+my_vcov <- vcovHC(income_inter, type = "HC2")
+x_values <- seq(min(log(my_df$median_income)), max(log(my_df$median_income)),
+    length.out = 500)
+effect <- coefs[3, 1] + coefs[5, 1] * x_values
+se <- sqrt(my_vcov[3,3] + my_vcov[5,5] * x_values^2 +
+             2 * my_vcov[3,5] * x_values)
+lb <- effect - se*1.96
+ub <- effect + se*1.96
+plot_df <- data.frame(x_values, effect, lb, ub)
+pdf("hetero.pdf", width=10, height=5)
+ggplot(plot_df, aes(x=x_values)) + 
+  geom_line(aes(y = effect), color = "darkred") + 
+  geom_line(aes(y = lb), color="steelblue", linetype="twodash") +
+  geom_line(aes(y = ub), color="steelblue", linetype="twodash") +
+  xlab("Median income (logarithmic scale)") +
+  ylab("Effect of price on rating") +
+  theme(text = element_text(size=15))
+dev.off()
 ```
 
 ```{r eval=FALSE, include=FALSE, results='asis'}

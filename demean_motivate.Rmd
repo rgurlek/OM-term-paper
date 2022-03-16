@@ -1,0 +1,71 @@
+---
+title: "Motivating Demeaning Approach"
+author: "Ragip Gurlek"
+date: "11/2/2020"
+output:
+  bookdown::pdf_document2:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document analytically motivates demeaning of variables in the Yelp dataset that I use for my *Price Placebo Effect* project. The project investigates if consumers' experience with a more expensive restaurant is better even if the restaurant is similar to its competitors in other dimensions. To address the inherent endogeneity in the problem, I use Tax as an instrumental variable (IV). I also demean the variables by their *local means*^[Local in geographical proximity.] to eliminate the bias introduces by location. I assume the Directed Acyclic  Graph (DAG) in Figure \@ref(fig:dag1) captures the causal relationship.
+
+```{r dag1, fig.cap = "Causal Relationship of Variables", echo = FALSE}
+knitr::include_graphics(rep('dag1.jpg'), dpi = 150)
+```
+
+This graph implies the following structural equation model
+
+\begin{align*}
+\text { Tax } &=f(\text {Location}) \\
+U &= m(\text {Location}) +\varepsilon_{1} \\
+\text { Price } &= g(\text {Location}) + \alpha_1 \text { Tax } + \gamma_{1} U+\varepsilon_{2} \\
+&=g(\text {Location}) + \alpha_1 f(\text {Location}) + \gamma_{1} m(\text {Location}) + \gamma_1 \varepsilon_1 + \varepsilon_{2} \\
+\text { Rating }&=\alpha_2 \text { price } + h(\text {Location}) +\gamma_{2} U + \varepsilon_{3} \\
+&=\alpha_2 g(\text {Location}) + \alpha_2\alpha_1 f(\text {Location}) + \alpha_2 \gamma_{1} m(\text {Location}) + \alpha_2 \gamma_1  \varepsilon_1 + \alpha_2 \varepsilon_{2} \\
+ &+h(\text {Location}) + \gamma_{2} m(\text {Location}) + \gamma_2 \varepsilon_1 + \varepsilon_{3}
+\end{align*}
+
+Where $\varepsilon_i, i=1,2,3$ are independent of each other and any other variable. $f,m,g,h$ are non-linear flexible functions. We assume $m,g,h$ are smooth functions and $f$ is a piecewise constant function that jumps at the borders. Define $L_i(X|\epsilon) = E[X | \text {Location} \in \ell_i(\epsilon)]$, where $\ell_i(\epsilon)$ is the set of locations across the border and within $\epsilon$ distance of observation $i$. Let
+
+\begin{align*}
+\overline{\text {Rating}_i} &= L_i(\text {Rating}|\epsilon) \\
+&= \alpha_2 L_i(g(\text {Location})|\epsilon) + \alpha_2\alpha_1 L_i(f(\text {Location})|\epsilon) + \alpha_2 \gamma_{1} L_i(m(\text {Location})|\epsilon) \\
+ &+ L_i(h(\text {Location})|\epsilon) + \gamma_{2} L_i(m(\text {Location})|\epsilon)\\
+\end{align*}
+
+Assume $g,h,m$ are smooth enough such that \\ $L_i(g(\text {Location})|\epsilon)$, $L_i(h(\text {Location})|\epsilon)$, $L_i(m(\text {Location})|\epsilon)$ goes to \\
+$g(\text {Location}), h(\text {Location}), m(\text {Location})$, respectively, as $\epsilon$ goes to $0$. Then,
+
+
+\begin{align*}
+\widetilde{\text {Rating}}_i &= \text {Rating}_i -  \overline{\text {Rating}_i}\\
+&\approx \alpha_2 \alpha_1 [f(\text {Location}) - L_i(f(\text {Location})|\epsilon)] +\left(\alpha_2 \gamma_{1}+\gamma_{2}\right) \varepsilon_1+\alpha_2 \varepsilon_{2}+\varepsilon_{3}
+\end{align*}
+
+Similarly,
+\begin{align*}
+\widetilde{U}_i &\approx \varepsilon_1\\
+\widetilde{\text {Tax}}_i &= f(\text {Location}) - L_i(f(\text {Location})|\epsilon)\\
+\widetilde{\text {Price}}_i &\approx \alpha_1 [f(\text {Location}) - L_i(f(\text {Location})|\epsilon)] + \gamma_{1} \varepsilon_1+\varepsilon_{2}
+\end{align*}
+
+Therefore, we can write the approximate Structural Equation Model as
+\begin{align*}
+    \widetilde{U}_i &\approx \varepsilon_1\\
+    \widetilde{\text {Tax}}_i &= f(\text {Location}) - L_i(f(\text {Location})|\epsilon)\\
+    \widetilde{\text {Price}}_i &\approx \alpha_1 \widetilde{\text {Tax}}_i + \gamma_{1} \widetilde{U}_i + \varepsilon_{2} \\
+    \widetilde{\text {Rating}}_i &\approx \alpha_2 \widetilde{\text {Price}}_i +\gamma_{2} \widetilde{U}_i+\varepsilon_{3} 
+\end{align*}
+
+Thus, we can approximate the DAG in Figure \@ref(fig:dag1) with the one in Figure \@ref(fig:dag2).
+```{r dag2, fig.cap = "Alternative Causal Relationship", echo = FALSE}
+knitr::include_graphics(rep('dag2.jpg'), dpi = 150)
+```
+
+This analysis implies we can employ two approaches. First, we can use the DAG in Figure \@ref(fig:dag2) and estimate a weighted local average for each variable to demean it. Then, we can estimate the effect with 2SLS.
+
+Alternatively, we can directly estimate a 2SLS where we use cluster fixed-effects as an approximation to Location to control it. The DAG in Figure \@ref(fig:dag1) shows that Location is the sufficient set to identify the effects of Tax on both Price and Rating.

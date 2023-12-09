@@ -5,20 +5,26 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
 ```
 
 ```{r}
-library(data.table)
-
-reviews <- readLines("yelp_academic_dataset_review.json")
+# reviews <- jsonlite::stream_in(file("yelp_academic_dataset_review.json"))
+reviews <- readLines("yelp_academic_dataset_review.json", n = 100)
 reviews <- lapply(reviews, jsonlite::fromJSON)
-checkin <- dplyr::bind_rows(checkin)
-
+reviews <- rbindlist(reviews)
+reviews$date |> max()
 
 # checkins
-checkin <- readLines("yelp_academic_dataset_checkin.json")
-checkin <- lapply(checkin, jsonlite::fromJSON)
-checkin <- dplyr::bind_rows(checkin)
+checkin <- jsonlite::stream_in(file("yelp_academic_dataset_checkin.json"))
+maxs <- lapply(stringr::str_split(checkin$date, ", "),
+               function(x) max(as.POSIXct(x)))
+time_attr <- attributes(maxs[[1]])
+maxs <- unlist(maxs)
+attributes(maxs) <- time_attr
+max(maxs)
+# "2021-01-28 15:39:16 EST"
 
 checkin_long <- tidyr::separate_rows(checkin, date, sep = ", ")
 checkin_long <- data.table(checkin_long)
@@ -35,5 +41,91 @@ max(checkin_long$date)
 checkin[, check_ins := stringr::str_count(date, ",")]
 summary(checkin$check_ins)
 checkin[, date := NULL]
+```
+
+## Businesses
+```{r}
+businesses <- jsonlite::stream_in(file("yelp_academic_dataset_business.json"))
+businesses <- data.table(businesses)
+mean(businesses$is_open)
+uniq_cities <- unique(businesses[state == "GA", city])
+uniq_cities[like(uniq_cities, "atlanta", ignore.case = T)]
+
+businesses <- businesses[state == "GA" &
+                           like(categories, "Restaurant", ignore.case = T), ]
+mean(businesses$is_open)
+
+covid <- jsonlite::stream_in(file("yelp_academic_dataset_covid_features.json"))
+colnames(covid)
+min(covid$`Temporary Closed Until`)
+sum(covid$`Temporary Closed Until` != "FALSE")
+remove(covid)
+```
+
+## Merge `businesses` with `inspections`
+```{r}
+load("parsed_inspections_with_geolocation.RData")
+inspections <- df; remove(df)
+# From the checkin data (max), I induce that the Yelp dataset is a snapshot from on
+# 2021-01-28
+inspections <- inspections[date >= "2019-01-01" & date < "2021-01-01", ]
+inspections <- inspections |>
+  arrange(date) |> 
+  group_by(entity) |> 
+  filter(row_number()==n()) |> 
+  ungroup()
+inspections <- data.table(inspections)
+
+inspections$insp_id <- 1:nrow(inspections)
+closest_match <- c()
+confidence <- c()
+for(row in 1:nrow(businesses)){
+  lat_l <- businesses[row, latitude] - 0.003
+  lat_u <- businesses[row, latitude] + 0.003
+  long_l <- businesses[row, longitude] - 0.003
+  long_u <- businesses[row, longitude] + 0.003
+  ins_subset <- inspections[between(lat, lat_l, lat_u) &
+                              between(long, long_l, long_u), ]
+  ins_street_number <- stringr::str_match(ins_subset$address, ("(\\d+?) "))[, 2]
+  bus_street_number <- stringr::str_match(businesses[row, address],
+                                          ("(\\d+?) "))[, 2]
+  ins_subset <- ins_subset[ins_street_number == bus_street_number]
+  sims <- stringdist::stringsim(tolower(businesses[row, name]),
+                          tolower(ins_subset$entity),
+                          method = "lcs")
+    
+  confidence <- c(confidence, suppressWarnings(max(sims)))
+  max_index <- ifelse(length(sims) > 0,
+                      ins_subset[which.max(sims), insp_id], NA)
+  closest_match <- c(closest_match, max_index)
+}
+sapply(seq(0.4, 0.95, 0.05), function(x) sum(confidence > x))
+
+threshold <- 0.5
+bus_sub <- businesses[confidence > threshold, ]
+bus_sub$match_confidence <- confidence[confidence > threshold]
+bus_sub[, c("insp_name", "insp_address",
+               "insp_score", "insp_grade", "insp_date" )] <-
+  inspections[closest_match[confidence > threshold],
+              c("entity", "address", "score", "grade", "date")]
+temp <- bus_sub[, .(match_confidence, name, insp_name, address, insp_address)]
+```
+
+## RDD
+
+```{r}
+bus_sub <- bus_sub[insp_score > 79, ][insp_date > "2020-01-01", ]
+mean(bus_sub$insp_score > 89.5)
+# bus_sub[, insp_score2 := insp_score + runif(.N, -0.5, 0.5)]
+
+library(rdrobust)
+rdplot(bus_sub$is_open, bus_sub$insp_score, c = 89.5,
+       x.label = "Inspection score", y.label = "Openness likelihood",
+       title = "Discontunity in openness likelihood")
+
+rd_model <- rdrobust(bus_sub$is_open, bus_sub$insp_score, c = 89.5)
+summary(rd_model)
+rd_model$coef
+rd_model$ci
 ```
 

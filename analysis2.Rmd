@@ -11,7 +11,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, message=F, warning=F)
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(tidyr)
 library(plyr)
 library(dplyr)
@@ -26,28 +26,23 @@ seed <- 8234
 
 
 ```{r}
-# Plot the sampled border points ####
-point_sample <- list()
-for(i in seq(1234, seed, 1000)){
-  point_sample <- c(point_sample, readRDS(paste0("point_sample_", seed, ".rds")))
-}
-plot(st_geometrycollection(point_sample))
-length(point_sample)
-
-remove(point_sample)
-```
-
-```{r}
 # Obsorve number of clusters with each nrow value
 rest_data <- list()
 for(i in seq(1234, seed, 1000)){
-  rest_data <- c(rest_data, readRDS(paste0("rest_data_", seed, ".rds")))
+  rest_data <- c(rest_data, readRDS(paste0("rest_data_", i, ".rds")))
 }
 table(sapply(rest_data, nrow))
 sum(sapply(rest_data, nrow))
 
 # Number of unique restaurants in the data
 id_list <- lapply(rest_data, function(x) x$id)
+id_list <- unlist(id_list)
+length(unique(id_list))
+
+# What if I sampled smaller number of points
+id_list <- lapply(rest_data[sample(1:length(rest_data),
+                                   1000)],
+                  function(x) x$id)
 id_list <- unlist(id_list)
 length(unique(id_list))
 ```
@@ -76,6 +71,7 @@ bus_data$categories
 
 ```{r}
 raw_data <- read.csv("raw_data2.csv")
+raw_data <- raw_data[!duplicated(raw_data$id), ]
 state_counts <- table(raw_data$state)
 state_counts <- sort(state_counts, decreasing = T)
 length(state_counts)
@@ -93,7 +89,8 @@ stargazer(raw_data[,c(7,8,6, 14:18)],
           title = "Descriptive statistics",
           label = "Desc",
           header = F,
-          notes = "CombinedRate is sum all sales taxes")
+          notes = "CombinedRate is sum all sales taxes",
+          type = "text")
 ```
 
 
@@ -123,32 +120,38 @@ kable(summary_table, digits = c(3,3,4,2),
 # Rating t-test for focal vs non-focal
 focal <- raw_data[raw_data$is_focal, ]
 non_focal <- raw_data[!raw_data$is_focal, ]
-t.test(focal$rating, non_focal$rating)
+t.test(focal$rating, non_focal$rating, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 ```{r}
 # Price t-test for focal vs non-focal
-t.test(focal$price, non_focal$price)
+t.test(focal$price, non_focal$price, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 ```{r}
 # CombinedRate t-test for focal vs non-focal
-t.test(focal$CombinedRate, non_focal$CombinedRate)
+t.test(focal$CombinedRate, non_focal$CombinedRate, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 ```{r}
 # StateRate t-test for focal vs non-focal
-t.test(focal$StateRate, non_focal$StateRate)
+t.test(focal$StateRate, non_focal$StateRate, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 ```{r}
 # CityRate t-test for focal vs non-focal
-t.test(focal$CityRate, non_focal$CityRate)
+t.test(focal$CityRate, non_focal$CityRate, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 ```{r}
 # Review Count t-test for focal vs non-focal
-t.test(focal$review_count, non_focal$review_count)
+t.test(focal$review_count, non_focal$review_count, alternative = "two.sided",
+       paired = F, var.equal = F)
 ```
 
 # Regression
@@ -182,7 +185,7 @@ iv_model_1 <- ivreg(rating ~ price |
                       StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
 iv_model_2 <- ivreg(rating ~ price  + log(review_count+1951)|
-                    log(review_count+1951) +
+                    log(review_count-min(reg_data$review_count)+1) +
                     StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
 # White standard errors
@@ -213,8 +216,9 @@ reg_data <- read.csv("reg_data_8046.csv")
 iv_model_1 <- ivreg(rating ~ price |
                       StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
-iv_model_2 <- ivreg(rating ~ price  + log(review_count+1951)|
-                    log(review_count+1951) +
+iv_model_2 <- ivreg(rating ~ price  +
+                      log(review_count-min(reg_data$review_count)+1)|
+                    log(review_count-min(reg_data$review_count)+1) +
                     StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
 test1 <- coeftest(iv_model_1, vcov. = vcovHC, type = "HC2")
@@ -224,8 +228,8 @@ reg_data <- read.csv("reg_data_4023.csv")
 iv_model_3 <- ivreg(rating ~ price |
                       StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
-iv_model_4 <- ivreg(rating ~ price  + log(review_count+1951)|
-                    log(review_count+1951) +
+iv_model_4 <- ivreg(rating ~ price  + log(review_count-min(reg_data$review_count)+1)|
+                    log(review_count-min(reg_data$review_count)+1) +
                     StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
 test3 <- coeftest(iv_model_3, vcov. = vcovHC, type = "HC2")
@@ -235,8 +239,8 @@ reg_data <- read.csv("reg_data_1609.csv")
 iv_model_5 <- ivreg(rating ~ price |
                       StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
-iv_model_6 <- ivreg(rating ~ price  + log(review_count+1951)|
-                    log(review_count+1951) +
+iv_model_6 <- ivreg(rating ~ price  + log(review_count-min(reg_data$review_count)+1)|
+                    log(review_count-min(reg_data$review_count)+1) +
                     StateRate + CountyRate + CityRate + SpecialRate,
                   data = reg_data)
 test5 <- coeftest(iv_model_5, vcov. = vcovHC, type = "HC2")

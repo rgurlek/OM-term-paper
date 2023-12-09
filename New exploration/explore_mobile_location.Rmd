@@ -1,0 +1,120 @@
+---
+title: "Explore Mobile Location"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(sf)
+library(dplyr)
+```
+
+
+- `maid`: Mobile Advertising IDs
+- `device_type`:  Apple calls their identifier the IDFA, or Identifier for Advertising. Google’s is the AAID, or Android Advertising Identifier.
+- `poi`: point of interest
+
+```{r}
+dt <- fread("part-00047-76ce3249-41d2-4fd5-90ee-69ed167bb863.c000.csv")
+
+head(dt)
+colnames(dt)
+
+dt$hashedMaid %>% unique() %>% length()
+freqs <- table(table(dt$hashedMaid))
+dens <- cumsum(freqs)[1:20] / sum(freqs)
+ggplot(mapping = aes(x = as.factor(1:20), y = dens,
+                     label = gsub("0.", ".", round(dens,2)))) +
+  geom_point() +
+  geom_text(nudge_y =  -0.01, size = 3) +
+  xlab("Timestamp per customer") + ylab("Cumulative Density")
+
+unique(dt$state)
+
+# Time
+range(dt$timestamp)
+# dt[, .N, by = lubridate::as_date(dt$timestamp)] %>%
+#   ggplot() +
+#   geom_col(aes(x = lubridate, y = N))
+
+# POI categories
+unique(dt$poi_categories)[1:10]
+dt$poi_categories %>% str_count(":") %>% max()
+dt$poi_categories %>% str_detect("restaurant") %>% sum()
+# dt[, str_split_fixed(poi_categories, ":")]
+```
+
+## Merge with inspections and explore
+```{r}
+load("parsed_inspections_with_geolocation.RData")
+inspections <- df; remove(df)
+inspections <- st_as_sf(inspections, coords = c("lat", "long"),
+                        crs = st_crs(4326), remove = F)
+inspections <- st_transform(inspections, crs = 5070)
+# inspections <- st_buffer(inspections, dist = 10, endCapStyle = "SQUARE")
+
+inspections <- inspections %>% filter(date >= "2019-01-01", date < "2020-03-19")
+inspections <- inspections %>%
+  arrange(date) %>% 
+  group_by(entity) %>% 
+  filter(row_number()==n()) %>% 
+  ungroup()
+
+
+dt <- st_as_sf(dt, coords = c("latitude", "longitude"),
+                        crs = st_crs(4326))
+dt <- st_transform(dt, crs = 5070)
+
+ptm <- proc.time()
+# st_is_within_distance uses a spatial index for geographic coordinates when sf_use_s2() is true
+example_within <- st_is_within_distance(inspections[1:10, ], dt, dist = 20)
+proc.time() - ptm
+example_within[[1]]
+st_distance(inspections[1, ], dt[example_within[[1]], ])
+
+visits <- st_is_within_distance(inspections, dt, dist = 20)
+saveRDS(visits, "visits.rds")
+
+inspections$n_visit <- sapply(visits, length)
+inspections <- data.table(st_drop_geometry(inspections))
+saveRDS(inspections, "inspection_and_visits.rds")
+
+inspections[, .N, by = cut(n_visit, c(0:11, Inf), right = F)] %>% 
+  ggplot(aes(cut, N)) +
+  geom_col() +
+  geom_text(aes(label = N), nudge_y = 500) +
+  scale_x_discrete(labels = c(0:10, ">10")) +
+  labs(title = "Frequency of restauraurants for number of visits*",
+       caption = "\n*A user is assumed to have visited a restaurant if she is within 20 meters of the geolocation (point) of the restaurant.     ") +
+  ylab("") + xlab("Number of visits")
+
+ggplot(inspections, aes(x = cut(n_visit, c(0:11, Inf), right = F))) +
+  geom_bar() +
+  scale_x_discrete(labels = c(0:10, ">10")) +
+  stat_count(aes(label = ..count..), geom = "text",
+             position = position_stack(1.2))
+```
+
+
+## Preliminary Analysis
+```{r}
+inspections <- readRDS("inspection_and_visits.rds")
+inspections <- inspections[n_visit<1000 & score > 69, ]
+
+library(rdrobust)
+rdplot(inspections$n_visit > 0, inspections$score, c = 89.5,
+       x.label = "Inspection score", y.label = "Visit likelihood",
+       title = "Discontunity in likelihood of having at least one visitor")
+
+rd_model <- rdrobust(inspections$n_visit > 0, inspections$score, c = 89.5)
+summary(rd_model)
+rd_model$coef
+rd_model$ci
+```
+

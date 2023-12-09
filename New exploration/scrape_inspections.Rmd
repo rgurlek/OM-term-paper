@@ -10,6 +10,7 @@ library(rvest)
 library(dplyr)
 library(stringr)
 library(data.table)
+library(tidygeocoder)
 ```
 
 ## Obtain list of Georgia Counties
@@ -174,8 +175,84 @@ df <- data.table(df)
 df[, `:=`(score = as.numeric(score),
           date = as.Date(date, format = "%B %d, %Y"))]
 
-save(df, file = "parsed_inspections_in_DF.RData")
+df[, address := paste(street_address, city_zip, sep = ", ")]
+df[, address := gsub("<br>.+", "", address)]
+
+save(df, file = "parsed_inspections_wo_geolocation.RData")
 ```
+
+Geocode. Census provides me the location on the roads while Bing provides the lcoation of the building. Go for Bing if possible.
+```{r}
+Sys.setenv(BINGMAPS_API_KEY="AldS8ogCXvFrz6h-7rYgQaVIOKKjiAH18oTfiCQGMtZ90NgepVeRHPxFgTi6MbFm")
+
+address <- df[, .(address = unique(address))]
+# census <- geocode(address, address = address, method = "census", verbose = TRUE)
+N <-  nrow(address)
+bing <- data.frame()
+i <- 1
+while(i <= N){
+  cat("\r", i, "of", N)
+  bing <- rbind(
+      bing,
+      tryCatch({
+        geocode(address[(i):(min(i+49, N)), ],
+                address = address, method = "bing",
+                verbose = F, quiet = T, full_results = F)
+      },
+      error = function(c){
+        message(c, "\n i")
+        Sys.sleep(15)
+        return(data.frame(address[(i):(min(i+49, N)), ],
+                          lat = NA, long = NA))      
+      })
+  )
+  i <- i + 50
+  save(bing, file = "bing_cache.RData")
+}
+
+
+temp <- bing[!is.na(bing$lat), ]
+address <- data.table(temp)[address, on = "address"]
+address_miss <- address[is.na(lat), "address"]
+bing2 <- data.frame()
+i <- 1
+N <- nrow(address_miss)
+while(i <= N){
+  cat("\r", i, "of", N)
+  bing2 <- rbind(
+      bing2,
+      tryCatch({
+        geocode(address_miss[(i):(min(i+49, N)), ],
+                address = address, method = "bing",
+                verbose = F, quiet = T, full_results = F)
+      },
+      error = function(c){
+        message(c, "\n i")
+        Sys.sleep(15)
+        return(data.frame(address_miss[(i):(min(i+49, N)), ],
+                          lat = NA, long = NA))      
+      })
+  )
+  Sys.sleep(3)
+  i <- i + 50
+  save(bing2, file = "bing2_cache.RData")
+}
+sum(is.na(bing2$lat))
+
+address <- data.table(bing2)[address, on = "address"]
+address[, `:=`(
+  lat = ifelse(is.na(lat), i.lat, lat),
+  long = ifelse(is.na(long), i.long, long)
+)]
+address[, `:=`(i.lat = NULL, i.long = NULL)]
+sapply(address, function(x) sum(is.na(x)))
+
+df <- address[df, on = "address"]
+sapply(df[, .(lat, long)], function(x) sum(is.na(x)))
+  
+save(df, file = "parsed_inspections_with_geolocation.RData")
+```
+
 
 Inspect some summaries
 ```{r}
@@ -190,8 +267,10 @@ range(df$date, na.rm = T)
 table(df$score)
 plot(table(df$score)[as.character(65:95)])
 
-# See if rdrobust would work this integer valued running variable. Use
-# some artifical closure for this
+# See if rdrobust would work this integer valued running variable.
+# Artifically make score into continues
+# Use some artifical closure for this
+df[, score := score + runif(.N, -0.499, 0.499)]
 df[, `:=`(
   left = rbinom(.N, 1, boot::inv.logit((score^3 - 30*score^2)/1000000)),
   right = rbinom(.N, 1, boot::inv.logit((score^3 - 2*score^2)/1000000))
@@ -210,7 +289,7 @@ rd_model$ci
 
 ## Scrape from ga.healthinspections.us
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 batch <- 1
 
 url <- paste0('https://ga.healthinspections.us/stateofgeorgia/API/index.cfm/search/%7B%22permitType%22:%22Rm9vZCBTZXJ2aWNl%22,%22keyword%22:%22%22%7D/', batch - 1)

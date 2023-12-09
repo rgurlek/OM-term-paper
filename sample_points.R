@@ -1,5 +1,6 @@
 library(stringr)
 library(sf)
+library(dplyr)
 
 seed <- 8234
 set.seed(seed)
@@ -22,12 +23,17 @@ borders <- merge(borders, border_sample, all.x = F,
 # If not in the sample, will not be used anyway
                  by.x = c("STATE", "ADJ"), by.y = c("Var1", "Var2"))
 
+# Border lengths are in meters. It appears that I sample
+# a point every 7.5 kms on average.
+borders %>% summarise(sum(b_length)/1000/sum(Freq))
+
 point_sample <- function(b_row){
   s1 <- b_row["STATE"]
   s2 <- b_row["ADJ"]
-  s1 <- us[us$State == s1, ]
-  s2 <- us[us$State == s2, ]
-  border <- st_intersection(s1$geometry, s2$geometry)
+  s1 <- us[us$state == s1, ]
+  s2 <- us[us$state == s2, ]
+  border <- st_intersection(st_cast(s1$geometry, "MULTILINESTRING"),
+                            st_cast(s2$geometry, "MULTILINESTRING"))
   my_sample <- st_sample(border, as.numeric(b_row["Freq"]))
   my_sample <- my_sample[!is.na(st_dimension(my_sample))]
   return(my_sample)
@@ -35,11 +41,8 @@ point_sample <- function(b_row){
 
 final_sample <- suppressMessages(apply(borders, 1, point_sample))
 # final_sample[[2]] # a list of multipoints
-temp <- list()
-for(i in final_sample){
-  temp <- c(temp, st_cast(i,"POINT"))
-}
-final_sample <- temp
-plot(st_geometrycollection(final_sample))
+final_sample <- lapply(final_sample, function(x) st_cast(x,"POINT"))
+final_sample <- do.call(c, final_sample)
+
 
 saveRDS(final_sample, paste0("point_sample_", seed, ".rds"))

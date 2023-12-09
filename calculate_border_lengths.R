@@ -9,6 +9,7 @@ plot(us$geometry)
 # Drop unnecessary columns
 us <- us %>% select(postal)
 us <- rename(us, state = postal)
+us <- st_transform(us, crs = 2163)
 plot(us)
 
 # import borders

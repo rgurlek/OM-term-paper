@@ -12,5 +12,21 @@ library(tidyr)
 library(dplyr)
 library(sf)
 library(knitr)
+library(ggplot2)
+library(plotly)
 seed <- 8234
 ```
+
+```{r}
+point_sample <- lapply(seq(1234, seed, 1000), function(x){
+  readRDS(paste0("point_sample_", x, ".rds"))
+})
+point_sample <- do.call(c, point_sample)
+
+load("us_map_and_border_lengths.RData")
+p <- ggplot() +
+  geom_sf(data = us) +
+  geom_sf(data = st_buffer(point_sample, 1609))
+ggplotly(p)
+```
+
